@@ -48,13 +48,24 @@ export class GoSignatureHelpProvider implements SignatureHelpProvider {
 			let result = new SignatureHelp();
 			let sig: string;
 			let si: SignatureInformation;
+			console.log(res);
 			if (res.toolUsed === 'godef') {
 				// declaration is of the form "Add func(a int, b int) int"
 				let nameEnd = declarationText.indexOf(' ');
 				let sigStart = nameEnd + 5; // ' func'
 				let funcName = declarationText.substring(0, nameEnd);
 				sig = declarationText.substring(sigStart);
-				si = new SignatureInformation(funcName + sig, res.doc);
+				let popularPatterns = new vscode.MarkdownString("")
+					.appendMarkdown("#### Popular Patterns")
+					.appendCodeblock("fmt.Println(\"some string\")", "go")
+					.appendCodeblock("fmt.Println(\"some more string\")", "go")
+					.appendCodeblock("fmt.Println(\"some more string\")", "go")
+					.appendCodeblock("fmt.Println(\"some more string\")", "go")
+					.appendCodeblock("fmt.Println(\"some more string\")", "go")
+					.appendMarkdown("[View Examples](http://ashwanthkumar.in/)")
+					.value
+				let documentAsMarkdown: vscode.MarkdownString = new vscode.MarkdownString(res.doc + popularPatterns);
+				si = new SignatureInformation(funcName + sig, documentAsMarkdown);
 			} else if (res.toolUsed === 'gogetdoc') {
 				// declaration is of the form "func Add(a int, b int) int"
 				declarationText = declarationText.substring(5);
@@ -62,13 +73,14 @@ export class GoSignatureHelpProvider implements SignatureHelpProvider {
 				if (funcNameStart > 0) {
 					declarationText = declarationText.substring(funcNameStart);
 				}
-				si = new SignatureInformation(declarationText, res.doc);
+				si = new SignatureInformation(declarationText, res.doc + "\n\ngogetdoc");
 				sig = declarationText.substring(res.name.length);
 			}
 
 			si.parameters = getParametersAndReturnType(sig).params.map(paramText =>
-				new ParameterInformation(paramText)
-			);
+				// console.log(paramText);
+				new ParameterInformation(paramText + "\n\nparamText")
+			)
 			result.signatures = [si];
 			result.activeSignature = 0;
 			result.activeParameter = Math.min(theCall.commas.length, si.parameters.length - 1);

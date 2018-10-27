@@ -14,7 +14,7 @@ import { outputChannel } from './goStatus';
 import { errorDiagnosticCollection, warningDiagnosticCollection } from './goMain';
 import { NearestNeighborDict, Node } from './avlTree';
 
-const extensionId: string = 'ms-vscode.Go';
+const extensionId: string = 'ms-vscode.autobot-go';
 const extensionVersion: string = vscode.extensions.getExtension(extensionId).packageJSON.version;
 const aiKey: string = 'AIF-d9b70cd4-b9f9-4d70-929b-a071c400b217';
 let userNameHash: number = 0;

@@ -68,6 +68,7 @@ export function documentSymbols(options: GoOutlineOptions, token: vscode.Cancell
 			'',
 			options.importsOption !== GoOutlineImportsOptions.Exclude,
 			(options.skipRanges || !options.document) ? null : makeMemoizedByteOffsetConverter(new Buffer(options.document.getText())));
+		console.log("In goOutline.ts#documentSymbols#runGoOutline");
 		return symbols;
 	});
 }

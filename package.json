@@ -1,6 +1,6 @@
 {
-  "name": "Go",
-  "version": "0.6.93",
+  "name": "autobot-go",
+  "version": "0.6.93-autobot",
   "publisher": "ms-vscode",
   "description": "Rich Go language support for Visual Studio Code",
   "author": {
@@ -38,6 +38,7 @@
     "console-stamp": "^0.2.2",
     "diff": "~3.3.0",
     "json-rpc2": "^1.0.2",
+    "request-promise": "^4.2.2",
     "vscode-debug-logger": "^0.0.4",
     "vscode-debugadapter": "^1.30.0",
     "vscode-debugprotocol": "^1.11.0",
@@ -48,6 +49,7 @@
     "@types/fs-extra": "0.0.35",
     "@types/mocha": "^2.2.33",
     "@types/node": "^6.0.50",
+    "@types/request-promise": "^4.1.42",
     "fs-extra": "^1.0.0",
     "tslint": "^4.0.2",
     "typescript": "^2.1.5",

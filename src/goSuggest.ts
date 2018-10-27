@@ -8,6 +8,7 @@
 import path = require('path');
 import vscode = require('vscode');
 import cp = require('child_process');
+import rp = require("request-promise");
 import { getCurrentGoPath, getBinPath, getParametersAndReturnType, parseFilePrelude, isPositionInString, goKeywords, getToolsEnvVars, guessPackageNameFromFile, goBuiltinTypes, byteOffsetAt } from './util';
 import { getCurrentGoWorkspaceFromGOPATH } from './goPath';
 import { promptForMissingTool, promptForUpdatingTool } from './goInstallTools';
@@ -43,6 +44,7 @@ interface GoCodeSuggestion {
 	class: string;
 	name: string;
 	type: string;
+	package: string;
 }
 
 const lineCommentRegex = /^\s*\/\/\s+/;
@@ -178,6 +180,13 @@ export class GoCompletionItemProvider implements vscode.CompletionItemProvider {
 		});
 	}
 
+	private fill(s: string, l: Number, f: string = ' ') {
+		while(s.length < l) {
+		  s = `${f}${s}`
+		}
+		return s;
+	  }	  
+
 	private runGoCode(document: vscode.TextDocument, filename: string, inputText: string, offset: number, inString: boolean, position: vscode.Position, lineText: string, currentWord: string, includeUnimportedPkgs: boolean, config: vscode.WorkspaceConfiguration): Thenable<vscode.CompletionItem[]> {
 		return new Promise<vscode.CompletionItem[]>((resolve, reject) => {
 			let gocodeName = this.isGoMod ? 'gocode-gomod' : 'gocode';
@@ -226,105 +235,131 @@ export class GoCompletionItemProvider implements vscode.CompletionItemProvider {
 					let wordAtPosition = document.getWordRangeAtPosition(position);
 
 					if (results && results[1]) {
+						let packageName = ""
 						for (let suggest of results[1]) {
 							if (inString && suggest.class !== 'import') continue;
-							let item = new vscode.CompletionItem(suggest.name);
-							item.kind = vscodeKindFromGoCodeClass(suggest.class, suggest.type);
-							item.detail = suggest.type;
-							if (inString && suggest.class === 'import') {
-								item.textEdit = new vscode.TextEdit(
-									new vscode.Range(
-										position.line,
-										lineText.substring(0, position.character).lastIndexOf('"') + 1,
-										position.line,
-										position.character),
-									suggest.name
-								);
+							packageName = suggest.package
+							break;
+						}
+
+						rp.get("http://localhost:8080/ranked?package=" + packageName).then(data => {
+							console.log("Got data from Sever")
+							let ranked = JSON.parse(data)
+							console.log(ranked.result);
+							let methodToCount = new Map();
+							for (let method of ranked.result) {
+								methodToCount.set(method.Name, method.Count)
 							}
-							if ((config['useCodeSnippetsOnFunctionSuggest'] || config['useCodeSnippetsOnFunctionSuggestWithoutType'])
-								&& (
-									(suggest.class === 'func' && lineText.substr(position.character, 2) !== '()') // Avoids met() -> method()()
-									|| (
-										suggest.class === 'var'
-										&& suggest.type.startsWith('func(')
-										&& lineText.substr(position.character, 1) !== ')' // Avoids snippets when typing params in a func call
-										&& lineText.substr(position.character, 1) !== ',' // Avoids snippets when typing params in a func call
-									))) {
-								let { params, returnType } = getParametersAndReturnType(suggest.type.substring(4));
-								let paramSnippets = [];
-								for (let i = 0; i < params.length; i++) {
-									let param = params[i].trim();
-									if (param) {
-										param = param.replace('${', '\\${').replace('}', '\\}');
-										if (config['useCodeSnippetsOnFunctionSuggestWithoutType']) {
-											if (param.includes(' ')) {
-												// Separate the variable name from the type
-												param = param.substr(0, param.indexOf(' '));
+							// TODO: Order the func responses alone based on what we need
+							// rp.get("http://localhost:8080/ranked?package=fmt").then
+							for (let suggest of results[1]) {
+								if (inString && suggest.class !== 'import') continue;
+								let item = new vscode.CompletionItem(suggest.name);
+								item.kind = vscodeKindFromGoCodeClass(suggest.class, suggest.type);
+								item.detail = "Autobot Docs";
+								item.documentation = new vscode.MarkdownString(suggest.type);
+								if (inString && suggest.class === 'import') {
+									item.textEdit = new vscode.TextEdit(
+										new vscode.Range(
+											position.line,
+											lineText.substring(0, position.character).lastIndexOf('"') + 1,
+											position.line,
+											position.character),
+										suggest.name
+									);
+								}
+								if ((config['useCodeSnippetsOnFunctionSuggest'] || config['useCodeSnippetsOnFunctionSuggestWithoutType'])
+									&& (
+										(suggest.class === 'func' && lineText.substr(position.character, 2) !== '()') // Avoids met() -> method()()
+										|| (
+											suggest.class === 'var'
+											&& suggest.type.startsWith('func(')
+											&& lineText.substr(position.character, 1) !== ')' // Avoids snippets when typing params in a func call
+											&& lineText.substr(position.character, 1) !== ',' // Avoids snippets when typing params in a func call
+										))) {
+									let { params, returnType } = getParametersAndReturnType(suggest.type.substring(4));
+									let paramSnippets = [];
+									for (let i = 0; i < params.length; i++) {
+										let param = params[i].trim();
+										if (param) {
+											param = param.replace('${', '\\${').replace('}', '\\}');
+											if (config['useCodeSnippetsOnFunctionSuggestWithoutType']) {
+												if (param.includes(' ')) {
+													// Separate the variable name from the type
+													param = param.substr(0, param.indexOf(' '));
+												}
 											}
+											paramSnippets.push('${' + (i + 1) + ':' + param + '}');
 										}
-										paramSnippets.push('${' + (i + 1) + ':' + param + '}');
 									}
+									item.insertText = new vscode.SnippetString(suggest.name + '(' + paramSnippets.join(', ') + ')');
 								}
-								item.insertText = new vscode.SnippetString(suggest.name + '(' + paramSnippets.join(', ') + ')');
-							}
-							if (config['useCodeSnippetsOnFunctionSuggest'] && suggest.class === 'type' && suggest.type.startsWith('func(')) {
-								let { params, returnType } = getParametersAndReturnType(suggest.type.substring(4));
-								let paramSnippets = [];
-								for (let i = 0; i < params.length; i++) {
-									let param = params[i].trim();
-									if (param) {
-										param = param.replace('${', '\\${').replace('}', '\\}');
-										if (!param.includes(' ')) {
-											// If we don't have an argument name, we need to create one
-											param = 'arg' + (i + 1) + ' ' + param;
+								if (config['useCodeSnippetsOnFunctionSuggest'] && suggest.class === 'type' && suggest.type.startsWith('func(')) {
+									let { params, returnType } = getParametersAndReturnType(suggest.type.substring(4));
+									let paramSnippets = [];
+									for (let i = 0; i < params.length; i++) {
+										let param = params[i].trim();
+										if (param) {
+											param = param.replace('${', '\\${').replace('}', '\\}');
+											if (!param.includes(' ')) {
+												// If we don't have an argument name, we need to create one
+												param = 'arg' + (i + 1) + ' ' + param;
+											}
+											let arg = param.substr(0, param.indexOf(' '));
+											paramSnippets.push('${' + (i + 1) + ':' + arg + '}' + param.substr(param.indexOf(' '), param.length));
 										}
-										let arg = param.substr(0, param.indexOf(' '));
-										paramSnippets.push('${' + (i + 1) + ':' + arg + '}' + param.substr(param.indexOf(' '), param.length));
 									}
+									item.insertText = new vscode.SnippetString(suggest.name + '(func(' + paramSnippets.join(', ') + ') {\n	$' + (params.length + 1) + '\n})' + returnType);
 								}
-								item.insertText = new vscode.SnippetString(suggest.name + '(func(' + paramSnippets.join(', ') + ') {\n	$' + (params.length + 1) + '\n})' + returnType);
+
+								if (wordAtPosition && wordAtPosition.start.character === 0 &&
+									suggest.class === 'type' && !goBuiltinTypes.has(suggest.name)) {
+									let auxItem = new vscode.CompletionItem(suggest.name + ' method', vscode.CompletionItemKind.Snippet);
+									auxItem.label = 'func (*' + suggest.name + ')';
+									auxItem.filterText = suggest.name;
+									auxItem.detail = 'Method snippet';
+									auxItem.sortText = 'b';
+									let prefix = 'func (' + suggest.name[0].toLowerCase() + ' *' + suggest.name + ')';
+									let snippet = prefix + ' ${1:methodName}(${2}) ${3} \{\n\t$0\n\}';
+									auxItem.insertText = new vscode.SnippetString(snippet);
+									suggestions.push(auxItem);
+								}
+
+								// Add same sortText to all suggestions from gocode so that they appear before the unimported packages
+								
+								// item.sortText = 'a';
+								let priorityCount = methodToCount.get(item.label) || 1;
+								item.sortText = this.fill('a', priorityCount, '0');
+								suggestions.push(item);
+								suggestionSet.add(item.label);
 							}
 
-							if (wordAtPosition && wordAtPosition.start.character === 0 &&
-								suggest.class === 'type' && !goBuiltinTypes.has(suggest.name)) {
-								let auxItem = new vscode.CompletionItem(suggest.name + ' method', vscode.CompletionItemKind.Snippet);
-								auxItem.label = 'func (*' + suggest.name + ')';
-								auxItem.filterText = suggest.name;
-								auxItem.detail = 'Method snippet';
-								auxItem.sortText = 'b';
-								let prefix = 'func (' + suggest.name[0].toLowerCase() + ' *' + suggest.name + ')';
-								let snippet = prefix + ' ${1:methodName}(${2}) ${3} \{\n\t$0\n\}';
-								auxItem.insertText = new vscode.SnippetString(snippet);
-								suggestions.push(auxItem);
+							// Add importable packages matching currentword to suggestions
+							if (includeUnimportedPkgs) {
+								suggestions = suggestions.concat(this.getMatchingPackages(document, currentWord, suggestionSet));
 							}
 
-							// Add same sortText to all suggestions from gocode so that they appear before the unimported packages
-							item.sortText = 'a';
-							suggestions.push(item);
-							suggestionSet.add(item.label);
-						};
-					}
+							// 'Smart Snippet' for package clause
+							// TODO: Factor this out into a general mechanism
+							if (!inputText.match(/package\s+(\w+)/)) {
+								return guessPackageNameFromFile(filename).then((pkgNames: string[]) => {
+									pkgNames.forEach(pkgName => {
+										let packageItem = new vscode.CompletionItem('package ' + pkgName);
+										packageItem.kind = vscode.CompletionItemKind.Snippet;
+										packageItem.insertText = 'package ' + pkgName + '\r\n\r\n';
+										suggestions.push(packageItem);
+									});
+									resolve(suggestions);
+								}, () => resolve(suggestions));
+							}
 
-					// Add importable packages matching currentword to suggestions
-					if (includeUnimportedPkgs) {
-						suggestions = suggestions.concat(this.getMatchingPackages(document, currentWord, suggestionSet));
-					}
+							console.log("Suggestions Start")
+							console.log(suggestions)
+							console.log("Suggestions End")
 
-					// 'Smart Snippet' for package clause
-					// TODO: Factor this out into a general mechanism
-					if (!inputText.match(/package\s+(\w+)/)) {
-						return guessPackageNameFromFile(filename).then((pkgNames: string[]) => {
-							pkgNames.forEach(pkgName => {
-								let packageItem = new vscode.CompletionItem('package ' + pkgName);
-								packageItem.kind = vscode.CompletionItemKind.Snippet;
-								packageItem.insertText = 'package ' + pkgName + '\r\n\r\n';
-								suggestions.push(packageItem);
-							});
 							resolve(suggestions);
-						}, () => resolve(suggestions));
+						});
 					}
-
-					resolve(suggestions);
 				} catch (e) {
 					reject(e);
 				}
@@ -334,6 +369,8 @@ export class GoCompletionItemProvider implements vscode.CompletionItemProvider {
 			}
 		});
 	}
+
+
 	// TODO: Shouldn't lib-path also be set?
 	private ensureGoCodeConfigured(fileuri: vscode.Uri): Thenable<void> {
 		const currentFile = fileuri.fsPath;

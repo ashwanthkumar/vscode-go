@@ -38,7 +38,8 @@ export function definitionLocation(document: vscode.TextDocument, position: vsco
 	if (!goConfig) {
 		goConfig = vscode.workspace.getConfiguration('go', document.uri);
 	}
-	let toolForDocs = goConfig['docsTool'] || 'godoc';
+	let toolForDocs = goConfig['docsTool'] || 'guru';
+	console.log("Using " + toolForDocs + " for definitionLocation and hover info")
 	let offset = byteOffsetAt(document, position);
 	let env = getToolsEnvVars();
 	return getGoVersion().then((ver: SemVersion) => {
@@ -56,6 +57,7 @@ export function definitionLocation(document: vscode.TextDocument, position: vsco
 }
 
 function definitionLocation_godef(document: vscode.TextDocument, isMod: boolean, offset: number, includeDocs: boolean, env: any, token: vscode.CancellationToken): Promise<GoDefinitionInformation> {
+	console.log("In definitionLocation_godef");
 	let godefTool = isMod ? 'godef-gomod' : 'godef';
 	let godefPath = getBinPath(godefTool);
 	if (!path.isAbsolute(godefPath)) {
@@ -68,6 +70,7 @@ function definitionLocation_godef(document: vscode.TextDocument, isMod: boolean,
 
 	return new Promise<GoDefinitionInformation>((resolve, reject) => {
 		// Spawn `godef` process
+		console.log("offset - " + offset.toString())
 		p = cp.execFile(godefPath, ['-t', '-i', '-f', document.fileName, '-o', offset.toString()], { env }, (err, stdout, stderr) => {
 			try {
 				if (err && (<any>err).code === 'ENOENT') {
@@ -85,6 +88,7 @@ function definitionLocation_godef(document: vscode.TextDocument, isMod: boolean,
 					return resolve(null);
 				}
 				let [_, file, line, col] = match;
+				console.log(lines);
 				let signature = lines[1];
 				let godoc = getBinPath('godoc');
 				let pkgPath = path.dirname(file);
@@ -133,6 +137,7 @@ function definitionLocation_godef(document: vscode.TextDocument, isMod: boolean,
 }
 
 function definitionLocation_gogetdoc(document: vscode.TextDocument, isMod: boolean, includeDocs: boolean, position: vscode.Position, offset: number, env: any, useTags: boolean, token: vscode.CancellationToken): Promise<GoDefinitionInformation> {
+	console.log("In definitionLocation_gogetdoc");
 	let gogetdoc = getBinPath('gogetdoc');
 	if (!path.isAbsolute(gogetdoc)) {
 		return Promise.reject(missingToolMsg + 'gogetdoc');
@@ -167,6 +172,9 @@ function definitionLocation_gogetdoc(document: vscode.TextDocument, isMod: boole
 				};
 				let goGetDocOutput = <GoGetDocOuput>JSON.parse(stdout.toString());
 				let match = /(.*):(\d+):(\d+)/.exec(goGetDocOutput.pos);
+				console.log("Start of gogetdoc output");
+				console.log(goGetDocOutput);
+				console.log("End of gogetdoc output");
 				let definitionInfo = {
 					file: null,
 					line: 0,
@@ -196,6 +204,7 @@ function definitionLocation_gogetdoc(document: vscode.TextDocument, isMod: boole
 }
 
 function definitionLocation_guru(document: vscode.TextDocument, position: vscode.Position, offset: number, env: any, token: vscode.CancellationToken): Promise<GoDefinitionInformation> {
+	console.log("In definitionLocation_guru");
 	let guru = getBinPath('guru');
 	if (!path.isAbsolute(guru)) {
 		return Promise.reject(missingToolMsg + 'guru');
@@ -205,7 +214,7 @@ function definitionLocation_guru(document: vscode.TextDocument, position: vscode
 		token.onCancellationRequested(() => killProcess(p));
 	}
 	return new Promise<GoDefinitionInformation>((resolve, reject) => {
-		p = cp.execFile(guru, ['-json', '-modified', 'definition', document.fileName + ':#' + offset.toString()], { env }, (err, stdout, stderr) => {
+		p = cp.execFile(guru, ['-json', '-modified', 'describe', document.fileName + ':#' + offset.toString()], { env }, (err, stdout, stderr) => {
 			try {
 				if (err && (<any>err).code === 'ENOENT') {
 					return reject(missingToolMsg + 'guru');
@@ -214,6 +223,9 @@ function definitionLocation_guru(document: vscode.TextDocument, position: vscode
 					return reject(err.message || stderr);
 				};
 				let guruOutput = <GuruDefinitionOuput>JSON.parse(stdout.toString());
+				console.log("Start of Guru Output");
+				console.log(guruOutput);
+				console.log("End of Guru Output");
 				let match = /(.*):(\d+):(\d+)/.exec(guruOutput.objpos);
 				let definitionInfo = {
 					file: null,
@@ -274,6 +286,7 @@ export class GoDefinitionProvider implements vscode.DefinitionProvider {
 interface GoGetDocOuput {
 	name: string;
 	import: string;
+	pkg: string;
 	decl: string;
 	doc: string;
 	pos: string;
