@@ -256,7 +256,6 @@ export class GoCompletionItemProvider implements vscode.CompletionItemProvider {
 								if (inString && suggest.class !== 'import') continue;
 								let item = new vscode.CompletionItem(suggest.name);
 								item.kind = vscodeKindFromGoCodeClass(suggest.class, suggest.type);
-								item.detail = "Autobot Docs";
 								item.documentation = new vscode.MarkdownString(suggest.type);
 								if (inString && suggest.class === 'import') {
 									item.textEdit = new vscode.TextEdit(
@@ -329,6 +328,11 @@ export class GoCompletionItemProvider implements vscode.CompletionItemProvider {
 								
 								// item.sortText = 'a';
 								let priorityCount = methodToCount.get(item.label) || 1;
+								if (priorityCount > 1) {
+									item.detail = "Sudarshana Powered";
+								} else {
+									item.detail = suggest.type
+								}
 								item.sortText = this.fill('a', priorityCount, '0');
 								suggestions.push(item);
 								suggestionSet.add(item.label);
